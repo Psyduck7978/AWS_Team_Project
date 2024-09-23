@@ -1,0 +1,88 @@
+import json
+import boto3
+import requests
+from botocore.exceptions import ClientError
+
+# SES 설정
+SES_CLIENT = boto3.client('ses', region_name='ap-northeast-2')
+SENDER = "goldhawk221021@gmail.com"  # SES에 검증된 이메일 주소
+RECIPIENT = "goldhawk221021@gmail.com"     # 수신자 이메일 주소
+SUBJECT = "Lambda Alarm Notification"
+BODY_TEXT = "This is a notification from AWS Lambda to both Slack and Email."
+BODY_HTML = """<html>
+<head></head>
+<body>
+  <h1>AWS Lambda Notification</h1>
+  <p>This is a notification sent to both Slack and Email via SES.</p>
+</body>
+</html>
+"""
+CHARSET = "UTF-8"
+
+# Slack 설정
+SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
+SLACK_MESSAGE = {
+    "text": "This is a notification from AWS Lambda to Slack and Email.",
+    "channel": "#soldesk",   # 슬랙에서 알림을 받을 채널
+    "username": "LambdaBot",
+    "icon_emoji": ":bell:"
+}
+
+def send_email():
+    """SES로 이메일을 보내는 함수"""
+    try:
+        response = SES_CLIENT.send_email(
+            Destination={
+                'ToAddresses': [RECIPIENT],
+            },
+            Message={
+                'Body': {
+                    'Html': {
+                        'Charset': CHARSET,
+                        'Data': BODY_HTML,
+                    },
+                    'Text': {
+                        'Charset': CHARSET,
+                        'Data': BODY_TEXT,
+                    },
+                },
+                'Subject': {
+                    'Charset': CHARSET,
+                    'Data': SUBJECT,
+                },
+            },
+            Source=SENDER,
+        )
+    except ClientError as e:
+        print(f"Error sending email: {e.response['Error']['Message']}")
+    else:
+        print(f"Email sent! Message ID: {response['MessageId']}")
+        
+def send_slack_notification():
+    """Slack으로 알림을 보내는 함수"""
+    try:
+        response = requests.post(
+            SLACK_WEBHOOK_URL, 
+            data=json.dumps(SLACK_MESSAGE), 
+            headers={'Content-Type': 'application/json'}
+        )
+        if response.status_code != 200:
+            raise ValueError(
+                f"Request to Slack returned an error {response.status_code}, the response is: {response.text}"
+            )
+    except Exception as e:
+        print(f"Error sending Slack notification: {str(e)}")
+    else:
+        print("Slack notification sent successfully!")
+
+def lambda_handler(event, context):
+    # SES로 이메일 전송
+    send_email()
+    
+    # Slack으로 알림 전송
+    send_slack_notification()
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Notifications sent to Slack and Email!')
+    }
