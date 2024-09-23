@@ -1,0 +1,140 @@
+import json
+import re
+import boto3
+import random
+import string
+import subprocess
+
+s3_client = boto3.client('s3')
+transcribe_client = boto3.client('transcribe')
+translate_client = boto3.client('translate')
+
+# 언어 코드 설정
+TRANSCRIBE_LANG_CODE = {
+    'en': 'en-US',
+    'ja': 'ja-JP',
+    'ko': 'ko-KR',
+    'zh': 'zh-CN'
+}
+
+FFMPEG_LANG_CODE = {
+    'en': 'eng',
+    'ja': 'jpn',
+    'ko': 'kor',
+    'zh': 'zho'
+}
+
+# 기본 언어 설정 (필요 시 변경 가능)
+TARGET_LANG = 'ko'  # 번역 대상 언어는 한국어
+SOURCE_LANG_DEFAULT = 'ja'  # 기본 소스 언어는 일본어
+
+LOCAL_SRT_PATH = '/tmp/jp_sub.srt'
+LOCAL_VIDEO_PATH = '/tmp/video.mp4'
+LOCAL_SUBTITLE_VIDEO_PATH = '/tmp/subtitle_video.mp4'
+
+SRT_KEY_FOLDER = 'srt/'
+SUBSTITLE_KEY_FOLDER = 'substitle/'
+
+# TranscriptionJobName 중복 방지를 위한 랜덤 문자열 생성
+def generate_random_string(length):
+    letters = string.ascii_letters
+    return ''.join(random.choice(letters) for _ in range(length))
+
+# 파일 이름을 기반으로 언어 감지
+def detect_language_from_filename(key):
+    if 'en_' in key:
+        return 'en'  # 영어
+    elif 'ja_' in key:
+        return 'ja'  # 일본어
+    elif 'ko_' in key:
+        return 'ko'  # 한국어
+    elif 'zh_' in key:
+        return 'zh'  # 중국어
+    else:
+        return SOURCE_LANG_DEFAULT  # 기본값으로 일본어
+
+# Create Transcribe and Save to S3
+def create_transcription_job_save_s3(bucket, key, source_lang):
+    random_string = generate_random_string(3)  # TranscriptionJobName 생성
+    transcribe_job_name = key.split('/')[1].split('.')[0] + random_string
+    transcribe_response = transcribe_client.start_transcription_job(
+        TranscriptionJobName=transcribe_job_name,
+        Subtitles={'Formats': ['srt']},
+        Media={'MediaFileUri': f's3://{bucket}/{key}'},
+        LanguageCode=TRANSCRIBE_LANG_CODE[source_lang],  # 감지된 언어로 설정
+        OutputBucketName=bucket,
+        OutputKey=SRT_KEY_FOLDER  # SRT 파일 저장 경로
+    )
+    return transcribe_job_name
+
+# Get S3 and Translate Target Language
+def get_s3_translate_text(bucket, key_srt, source_lang):
+    srt_body = s3_client.get_object(Bucket=bucket, Key=key_srt)['Body'].read().decode('utf-8')
+    translate_response = translate_client.translate_text(
+        Text=srt_body,
+        SourceLanguageCode=source_lang,
+        TargetLanguageCode=TARGET_LANG
+    )
+    return translate_response['TranslatedText']
+
+# When translated by AWS translate, the timeline format changes, so it is transformed to fit the srt format.
+def format_subtitles(translated_text):
+    pattern = r"(\d{2}:\d{2}:\d{2},\d{3})--> (\d{2}:\d{2}:\d{2},\d{3})"
+    replacement = r"\1 --> \2"
+    return re.sub(pattern, replacement, translated_text)
+
+def lambda_handler(event, context):
+    # S3 버킷과 파일 이름 가져오기
+    bucket = event['Records'][0]['s3']['bucket']['name']
+    key = event['Records'][0]['s3']['object']['key']
+
+    # 파일 이름을 기반으로 언어 감지
+    source_lang = detect_language_from_filename(key)
+    print(f"Detected language: {source_lang}")
+
+    # Transcribe Job 시작
+    transcribe_job_name = create_transcription_job_save_s3(bucket, key, source_lang)
+    
+    # Transcribe 작업 완료 대기
+    while True:
+        status = transcribe_client.get_transcription_job(TranscriptionJobName=transcribe_job_name)['TranscriptionJob']['TranscriptionJobStatus']
+        if status in ['COMPLETED', 'FAILED']:
+            break
+    
+    key_srt = SRT_KEY_FOLDER + transcribe_job_name + '.srt'
+    translated_text = get_s3_translate_text(bucket, key_srt, source_lang)
+    formatted_subtitle = format_subtitles(translated_text)
+    
+    # SRT 파일을 로컬에 저장
+    with open(LOCAL_SRT_PATH, "a") as f:
+        f.write(formatted_subtitle)
+
+    # 원본 영상 파일 다운로드
+    s3_client.download_file(bucket, key, LOCAL_VIDEO_PATH)
+    
+    # FFmpeg을 사용해 자막을 영상에 추가
+    command = [
+        "/opt/bin/ffmpeg",
+        "-y",
+        "-i", LOCAL_VIDEO_PATH,
+        "-i", LOCAL_SRT_PATH,
+        "-c", "copy",
+        "-c:s", "mov_text",
+        "-metadata:s:s:0", "language=" + FFMPEG_LANG_CODE[TARGET_LANG], 
+        LOCAL_SUBTITLE_VIDEO_PATH
+    ]
+    subprocess.run(command, check=True)
+    
+    # 자막이 포함된 영상을 S3에 업로드
+    output_key_name = SUBSTITLE_KEY_FOLDER + key.split('/')[1].split('.')[0] + '-subtitle.mp4'
+    s3_client.upload_file(LOCAL_SUBTITLE_VIDEO_PATH, bucket, output_key_name)
+    
+    # Transcription 작업 삭제
+    response = transcribe_client.delete_transcription_job(TranscriptionJobName=transcribe_job_name)
+    
+    print(event)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Saved video subtitles!')
+    }

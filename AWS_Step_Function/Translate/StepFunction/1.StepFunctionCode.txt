@@ -1,0 +1,35 @@
+{
+  "Comment": "Transcribe, Translate, and MediaConvert workflow",
+  "StartAt": "Transcribe",
+  "States": {
+    "Transcribe": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:ap-northeast-2:503561434440:function:trans_cribe2",
+      "ResultPath": "$.TranscribeResult",
+      "Next": "WaitForTranscribe"
+    },
+    "WaitForTranscribe": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "Translate"
+    },
+    "Translate": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:ap-northeast-2:503561434440:function:trans_late2",
+      "InputPath": "$",
+      "ResultPath": "$.TranslateResult",
+      "Next": "WaitForTranslate"
+    },
+    "WaitForTranslate": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "MediaConvert"
+    },
+    "MediaConvert": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:ap-northeast-2:503561434440:function:media_convert2",
+      "InputPath": "$.TranslateResult",
+      "End": true
+    }
+  }
+}

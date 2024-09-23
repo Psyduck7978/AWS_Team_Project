@@ -1,0 +1,45 @@
+import AWS from 'aws-sdk';
+
+export const handler = async (event) => {
+    console.log('Received event:', JSON.stringify(event, null, 2));
+
+    // SNS 메시지에서 S3 이벤트 정보 추출
+    let s3Event;
+    try {
+        const snsMessage = event.Records[0].Sns.Message;
+        s3Event = JSON.parse(snsMessage);  // SNS 메시지를 파싱하여 S3 이벤트로 변환
+    } catch (err) {
+        console.error('Error parsing SNS message:', err);
+        throw new Error('Failed to parse SNS message');
+    }
+
+    // S3 이벤트가 없는 경우 처리
+    if (!s3Event || !s3Event.Records || s3Event.Records.length === 0) {
+        console.error('Event does not contain S3 records:', JSON.stringify(event, null, 2));
+        throw new Error('Event does not contain S3 records');
+    }
+
+    // S3 이벤트로부터 bucket과 file 정보를 가져옴
+    const bucket = s3Event.Records[0].s3.bucket.name;
+    const file = s3Event.Records[0].s3.object.key;
+
+    // file이 undefined인 경우 에러 처리
+    if (!file) {
+        throw new Error('File parameter is missing in the event');
+    }
+
+    const stepFunctions = new AWS.StepFunctions();
+    const params = {
+        stateMachineArn: 'arn:aws:states:ap-northeast-2:503561434440:stateMachine:MyStateMachine-f57hwmcr8',
+        input: JSON.stringify({ bucket, file })
+    };
+
+    try {
+        const data = await stepFunctions.startExecution(params).promise();
+        console.log('Step Function execution started:', data);
+        return data;
+    } catch (err) {
+        console.error('Error starting Step Function execution:', err);
+        throw err;
+    }
+};

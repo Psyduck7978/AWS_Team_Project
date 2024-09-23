@@ -1,0 +1,75 @@
+import AWS from 'aws-sdk';
+
+const translate = new AWS.Translate();
+const s3 = new AWS.S3();
+
+export const handler = async (event) => {
+    console.log('Received event:', JSON.stringify(event, null, 2));
+
+    // 첫 번째 Lambda에서 전달된 bucket과 file 정보 사용
+    const bucket = event.bucket;
+    const file = event.file;
+
+    if (!bucket || !file) {
+        throw new Error('Bucket or file information is missing in the event.');
+    }
+
+    // SRT 파일 경로 생성
+    const srtFileKey = `srt/${file.split('/').pop()}.srt.srt`;
+
+    // S3에서 Transcribe로 생성된 SRT 파일 가져오기
+    const transcribeData = await s3.getObject({
+        Bucket: bucket,
+        Key: srtFileKey
+    }).promise();
+
+    const srtContent = transcribeData.Body.toString('utf-8');  // SRT 파일 내용을 문자열로 변환
+
+    // 번역할 텍스트 추출 및 번역
+    const srtLines = srtContent.split('\n\n');  // SRT 파일에서 각 자막 블록을 분리
+    let translatedSrtContent = '';
+
+    for (const srtBlock of srtLines) {
+        const lines = srtBlock.split('\n');  // 자막 블록에서 시간을 제외한 텍스트 라인 추출
+        if (lines.length >= 3) {  // 자막 블록은 최소 3줄 (번호, 시간, 텍스트)이어야 함
+            const textLine = lines[2];  // 자막 텍스트
+            const translatedText = await translateText(textLine, 'ja');  // 언어 코드 'ja' (일본어)
+            translatedSrtContent += `${lines[0]}\n${lines[1]}\n${translatedText}\n\n`;
+        } else {
+            // 빈 자막 블록 처리
+            translatedSrtContent += `${srtBlock}\n\n`;
+        }
+    }
+
+    // 번역된 SRT 파일을 S3에 저장
+    const translatedFileKey = `srt/${file.split('/').pop()}-translated.srt`;
+    await s3.putObject({
+        Bucket: bucket,
+        Key: translatedFileKey,
+        Body: translatedSrtContent,
+        ContentType: "text/plain"
+    }).promise();
+
+    console.log(`Translated SRT saved at: s3://${bucket}/${translatedFileKey}`);
+
+    // 번역된 SRT 파일 경로를 반환
+    return {
+        statusCode: 200,
+        body: JSON.stringify({
+            message: 'Translation completed successfully.',
+            translatedSrtPath: `s3://${bucket}/${translatedFileKey}`
+        })
+    };
+};
+
+// 텍스트를 번역하는 함수
+const translateText = async (text, sourceLanguage) => {
+    const params = {
+        Text: text,
+        SourceLanguageCode: sourceLanguage,
+        TargetLanguageCode: 'ko'  // 한국어로 번역
+    };
+
+    const result = await translate.translateText(params).promise();
+    return result.TranslatedText;
+};

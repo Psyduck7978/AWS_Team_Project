@@ -1,0 +1,60 @@
+import AWS from 'aws-sdk';
+
+const transcribe = new AWS.TranscribeService();
+const s3 = new AWS.S3();
+
+export const handler = async (event) => {
+    console.log('Received event:', JSON.stringify(event, null, 2));
+
+    // 버킷과 파일 경로를 이벤트에서 추출
+    const bucket = event.bucket || 's3-rocket-ott';  // S3 버킷
+    const file = event.file || 'your_file_name.mp4';  // S3 파일명
+
+    // S3 이벤트에서 bucket과 file 정보를 추출
+    if (!bucket || !file) {
+        throw new Error('Bucket or file information is missing in the event.');
+    }
+
+    // Transcribe 작업을 위한 언어 코드 추출
+    let languageCode = 'en-US';  // 기본값은 영어
+    if (file.includes('ja')) {
+        languageCode = 'ja-JP';  // 일본어
+    } else if (file.includes('en')) {
+        languageCode = 'en-US';  // 영어
+    }
+
+    const params = {
+        TranscriptionJobName: `transcribe-${Date.now()}`,
+        LanguageCode: languageCode,
+        Media: {
+            MediaFileUri: `s3://${bucket}/${file}` // S3의 파일 URI
+        },
+        OutputBucketName: bucket,  // 결과물이 저장될 S3 버킷
+        OutputKey: `srt/${file.split('/').pop()}.srt`,  // SRT 파일이 저장될 경로
+        Subtitles: {
+            Formats: ['srt']  // SRT 파일 포맷 설정
+        }
+    };
+
+    try {
+        // Transcribe 작업 시작
+        const transcribeJob = await transcribe.startTranscriptionJob(params).promise();
+        console.log(`Transcription job started: ${transcribeJob.TranscriptionJobName}`);
+
+        // Transcribe 작업이 시작되었음을 리턴 (bucket과 file 정보 포함)
+        return {
+            statusCode: 200,
+            body: JSON.stringify({
+                message: `Transcription job ${transcribeJob.TranscriptionJobName} started successfully`,
+                transcriptionJobName: transcribeJob.TranscriptionJobName,
+                bucket: bucket,
+                file: file,  // S3에서 사용한 파일 정보 반환
+				languageCode: languageCode,
+                outputUri: `s3://${bucket}/srt/${file.split('/').pop()}.srt`
+            })
+        };
+    } catch (error) {
+        console.error('Error starting transcription job:', error);
+        throw new Error(`Failed to start transcription job: ${error.message}`);
+    }
+};

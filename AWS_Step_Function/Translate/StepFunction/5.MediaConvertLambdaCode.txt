@@ -1,0 +1,134 @@
+import AWS from 'aws-sdk';
+
+const mediaConvert = new AWS.MediaConvert({ region: 'ap-northeast-2' });
+
+export const handler = async (event) => {
+    console.log('Received event:', JSON.stringify(event, null, 2));
+
+    const bucket = event.bucket || 's3-rocket-ott'; // S3 버킷
+    const file = event.file || 'your_file_name.mp4';  // 비디오 파일 경로
+    const translatedSrtPath = event.translatedSrtPath || '';  // 번역된 SRT 파일 경로
+
+    if (!translatedSrtPath) {
+        throw new Error('Translated SRT file path is missing');
+    }
+
+    const mediaConvertParams = {
+        Queue: 'arn:aws:mediaconvert:ap-northeast-2:503561434440:queues/Default',
+        Role: 'arn:aws:iam::503561434440:role/MediaConvertRole_Rocket',
+        Settings: {
+            TimecodeConfig: {
+                Source: 'ZEROBASED'
+            },
+            OutputGroups: [
+                {
+                    Name: 'File Group',
+                    Outputs: [
+                        {
+                            ContainerSettings: {
+                                Container: 'MP4',
+                                Mp4Settings: {}
+                            },
+                            VideoDescription: {
+                                CodecSettings: {
+                                    Codec: 'H_264',
+                                    H264Settings: {
+                                        MaxBitrate: 1500000,
+                                        RateControlMode: 'QVBR',
+                                        SceneChangeDetect: 'TRANSITION_DETECTION'
+                                    }
+                                },
+                            },
+                            AudioDescriptions: [
+                                {
+                                    AudioSourceName: 'Audio Selector 1',
+                                    CodecSettings: {
+                                        Codec: 'AAC',
+                                        AacSettings: {
+                                            Bitrate: 96000,
+                                            CodingMode: 'CODING_MODE_2_0',
+                                            SampleRate: 48000
+                                        }
+                                    }
+                                }
+                            ],
+                            // CaptionDescriptions가 VideoDescription 안이 아니라 Output 수준에 위치해야 합니다.
+                            CaptionDescriptions: [
+                                {
+                                    CaptionSelectorName: 'Captions Selector 1',
+                                    DestinationSettings: {
+                                        DestinationType: 'BURN_IN',  // 자막을 비디오에 burn-in
+                                        "BurninDestinationSettings": {
+                                        "OutlineSize": 3,
+                                        "OutlineColor": "BLACK"
+                                        }
+                                    },
+                                    LanguageCode: 'KOR',  // 자막 언어 코드
+                                    LanguageDescription: 'Korean Subtitles'
+                                }
+                            ]
+                        }
+                    ],
+                    OutputGroupSettings: {
+                        Type: 'FILE_GROUP_SETTINGS',
+                        FileGroupSettings: {
+                            Destination: `s3://${bucket}/subtitle/`  // 출력된 비디오 파일 저장 위치
+                        }
+                    }
+                }
+            ],
+            FollowSource: 1,
+            Inputs: [
+                {
+                    AudioSelectors: {
+                        'Audio Selector 1': {
+                            DefaultSelection: 'DEFAULT'
+                        }
+                    },
+                    VideoSelector: {},
+                    TimecodeSource: 'ZEROBASED',
+                    CaptionSelectors: {
+                        'Captions Selector 1': {
+                            SourceSettings: {
+                                SourceType: 'SRT',
+                                FileSourceSettings: {
+                                    SourceFile: translatedSrtPath  // 번역된 SRT 파일 경로
+                                }
+                            }
+                        }
+                    },
+                    FileInput: `s3://${bucket}/${file}`  // 비디오 파일 경로
+                }
+            ]
+        },
+        BillingTagsSource: 'JOB',
+        AccelerationSettings: {
+            Mode: 'DISABLED'
+        },
+        StatusUpdateInterval: 'SECONDS_60',
+        Priority: 0
+    };
+
+    try {
+        const data = await mediaConvert.createJob(mediaConvertParams).promise();
+        console.log('MediaConvert job started successfully:', data);
+        
+        return {
+            statusCode: 200,
+            body: JSON.stringify({
+                message: 'MediaConvert job started successfully',
+                jobId: data.Job.Id,
+                outputFile: `s3://${bucket}/subtitle/`
+            })
+        };
+    } catch (error) {
+        console.error('Error starting MediaConvert job:', error);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({
+                message: 'Error starting MediaConvert job',
+                error: error.message
+            })
+        };
+    }
+};
