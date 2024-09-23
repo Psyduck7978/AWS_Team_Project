@@ -85,7 +85,8 @@ SNS 액세스정책도 추가하자
 }
 ```  
 정책으로는  
-![image](https://github.com/user-attachments/assets/f64a1b70-12be-4ba1-8f3c-73259d69cf63)  
+![1](https://github.com/user-attachments/assets/a4ddf86b-9f7c-46ba-b87c-1adbb118840c)  
+  
 인라인정책은  
 ```
 {
@@ -141,7 +142,7 @@ SNS 액세스정책도 추가하자
   
 미디어 컨버터를 이용한 역할도 하나 더 만들자  
 미디어 컨버터 역할에 연결된 정책은  
-![image](https://github.com/user-attachments/assets/0e18fcf4-9235-4d99-bc88-772385f89914)  
+![image](https://github.com/user-attachments/assets/1636e820-6464-48a7-a6b7-ef8167c8055d)  
 인라인정책은  
 ```
 {
