@@ -3,14 +3,14 @@ import AWS from 'aws-sdk';
 export const handler = async (event) => {
     console.log('Received event:', JSON.stringify(event, null, 2));
 
-    // SNS 메시지에서 S3 이벤트 정보 추출
+    // SQS 메시지에서 S3 이벤트 정보 추출
     let s3Event;
     try {
-        const snsMessage = event.Records[0].Sns.Message;
-        s3Event = JSON.parse(snsMessage);  // SNS 메시지를 파싱하여 S3 이벤트로 변환
+        const sqsMessageBody = event.Records[0].body;
+        s3Event = JSON.parse(sqsMessageBody);  // SQS 메시지 바디를 파싱하여 S3 이벤트로 변환
     } catch (err) {
-        console.error('Error parsing SNS message:', err);
-        throw new Error('Failed to parse SNS message');
+        console.error('Error parsing SQS message:', err);
+        throw new Error('Failed to parse SQS message');
     }
 
     // S3 이벤트가 없는 경우 처리
