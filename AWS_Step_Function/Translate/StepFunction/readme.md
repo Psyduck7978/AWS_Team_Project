@@ -71,7 +71,7 @@ SQS 액세스정책도 바꿔주자
 }
 ```  
 정책으로는  
-![1](https://github.com/user-attachments/assets/a4ddf86b-9f7c-46ba-b87c-1adbb118840c)  
+![image](https://github.com/user-attachments/assets/82550b17-6f7b-4993-9648-b900cfa42471)  
   
 인라인정책은  
 ```
