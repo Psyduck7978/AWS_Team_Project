@@ -17,45 +17,31 @@ s3의 기본 버킷 정책은
     ]
 }
 ```
-로 설정하였으며 이벤트 알림을 SNS토픽으로 전송하게 하였다  
-SNS는 이를 가장 처음 람다에게 전달하여 step function을 시작하게 한다  
-SNS 액세스정책도 바꿔주자  
+로 설정하였으며 이벤트 알림을 SQS로 전송하게 하였다  
+SQS는 이를 가장 처음 람다에게 전달하여 step function을 시작하게 한다  
+SQS 액세스정책도 바꿔주자  
 ```
 {
-  "Version": "2008-10-17",
+  "Version": "2012-10-17",
   "Id": "__default_policy_ID",
   "Statement": [
     {
-      "Sid": "__default_statement_ID",
+      "Sid": "__owner_statement",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "*"
+        "AWS": "arn:aws:iam::503561434440:root"
       },
-      "Action": [
-        "SNS:Publish",
-        "SNS:RemovePermission",
-        "SNS:SetTopicAttributes",
-        "SNS:DeleteTopic",
-        "SNS:ListSubscriptionsByTopic",
-        "SNS:GetTopicAttributes",
-        "SNS:AddPermission",
-        "SNS:Subscribe"
-      ],
-      "Resource": "arn:aws:sns:ap-northeast-2:503561434440:mytopic",
-      "Condition": {
-        "StringEquals": {
-          "AWS:SourceOwner": "503561434440"
-        }
-      }
+      "Action": "SQS:*",
+      "Resource": "arn:aws:sqs:ap-northeast-2:503561434440:upload_video_sqs"
     },
     {
-      "Sid": "AllowS3Publish",
+      "Sid": "AllowS3ToSendMessage",
       "Effect": "Allow",
       "Principal": {
         "Service": "s3.amazonaws.com"
       },
-      "Action": "SNS:Publish",
-      "Resource": "arn:aws:sns:ap-northeast-2:503561434440:mytopic",
+      "Action": "SQS:SendMessage",
+      "Resource": "arn:aws:sqs:ap-northeast-2:503561434440:upload_video_sqs",
       "Condition": {
         "ArnLike": {
           "aws:SourceArn": "arn:aws:s3:::s3-rocket-ott"
@@ -187,4 +173,13 @@ SNS 액세스정책도 바꿔주자
 이렇게 추가해주었다  
   
 계층(Layer) 추가가 필요한데 첨부한 aws-sdk.zip 를 계층에 등록 후 추가해줬을때 문제 없이 동작하였다  
-해당 작업은 파일명에 en 혹은 ja가 들어갈시 이를 인식하여 한국어로 번역한후 영상을 인코딩한다
+해당 작업은 파일명에 en 혹은 ja가 들어갈시 이를 인식하여 한국어로 번역한후 영상을 인코딩한다  
+  
+위 1번을 제외한 2,3,4,5 코드로 람다를 각 만들고 만들시에 위에서 만든 역할로 선택해주자  
+  
+이제 처음 SQS로 와서 Lambda트리거로 StartStepFunction 을 골라주면된다 혹시나 에러가 난다면 람다에 할당된 역할에서 SQS에 접근권한이 없는거기 때문에 수정해주자  
+S3로 와서 속성의 이벤트 알림에 SQS를 선택하여 위에서 만든 SQS 를 골라주면 된다  
+이벤트알람에서 선택해야할것은 s3:ObjectCreated:Put, s3:ObjectCreated:CompleteMultipartUpload 이렇게 2개이다  
+  
+이제 AWS StepFunction 서비스로 이동하여 1번에 적힌 코드로 상태머신을 정의한다  
+코드의 각Arn은 로지컬ID에 적힌 Lambda Arn을 넣어주고 wait는 코드 작성자가 생각하기에 적당한수준으로 하면 된다  
